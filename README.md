@@ -6,6 +6,7 @@ prometheus的告警配置通过configmap挂载进来，而pod-alert根据pod的�
 
 pod-alert为每个pod单独创建一条告警规则
 
-目前只做了cpu使用超标的告警策略
-
 pod-alert借助了client-go项目来监控pod的相关事件
+
+
+目前只做了cpu使用超标的告警策略
