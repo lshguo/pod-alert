@@ -11,7 +11,6 @@ import (
 	"time"
 	"k8s.io/client-go/pkg/api/v1"
 	"strconv"
-	"fmt"
 )
 
 
@@ -185,10 +184,15 @@ func getCreatedConatinersFromPodObj(pod *v1.Pod) []*ContainerInfo {
 }
 //处理containerList，更新alert_rules.yml
 func (rules *AlertRules)UpdateAlertRulesFile(){
+	//更新alert_rules.yml完毕，重启计时器
+	defer rules.RestartTimer()
+
 	//无pod变化，不需要更新alert_rules.yml
-	if len(rules.ContainerList) == 0{
+	listLen := len(rules.ContainerList)
+	if listLen == 0{
 		return
 	}
+	glog.Infof("%v obj in list to be flush into file", listLen)
 
 	b, err := ioutil.ReadFile(rules.FileName)
 	if err != nil{
@@ -220,9 +224,6 @@ func (rules *AlertRules)UpdateAlertRulesFile(){
 	if err := os.Rename(tmpFile, rules.FileName);err != nil{
 		panic("rename file " + tmpFile + "to " + rules.FileName + " failed: " + err.Error())
 	}
-
-	//更新alert_rules.yml完毕，重启计时器
-	rules.RestartTimer()
 }
 
 func (rules *AlertRules)updateAlertRulesStringAndClearList(pStr *string){
@@ -247,7 +248,7 @@ func (rules *AlertRules)updateAlertRulesStringAndClearList(pStr *string){
 		if !deleted{
 			rule_start, rule_expr, rule_end := (*c).BuildAlertRuleStrings()
 			*pStr = *pStr + rule_start + rule_expr + rule_end
-			glog.Info("new rule expr: " + rule_expr)
+			glog.V(4).Infoln("new rule expr: " + rule_expr)
 		}
 
 	}
@@ -271,69 +272,17 @@ func (rules *AlertRules)AddToList(containers []*ContainerInfo){
 	rules.ListLock.Unlock()
 
 	if len(rules.ContainerList) >= WAITING_NUMBER_MAX{
-		fmt.Println("List is Full: ", len(rules.ContainerList))
+		glog.Infoln("List is Full: ", len(rules.ContainerList))
 		rules.Full <- true
 	}
 }
-
-
-func (rules *AlertRules) Worker(){
-	//fmt.Println("ruleWorker start...")
-	//for {
-	//	select{
-	//	case <- rules.Full:
-	//		fmt.Println("<- full")
-	//		rules.UpdateAlertRulesFile()
-	//	case <- rules.Timer.C:
-	//		fmt.Println("<- timeout")
-	//		rules.UpdateAlertRulesFile()
-	//	}
-	//}
-}
-
 
 //初始化计时器，并开始计时
 func (rules *AlertRules)RestartTimer(){
 	if nil == rules.Timer{
 		rules.Timer = time.NewTimer(time.Duration(WAITING_SECOND_MAX) * time.Second)
+	}else{
+		rules.Timer.Reset(time.Duration(WAITING_SECOND_MAX) * time.Second)
 	}
 
-	rules.Timer.Reset(time.Duration(WAITING_SECOND_MAX) * time.Second)
 }
-//func main(){
-//	fileName := "/Users/guolsh/guolsh/test.txt"
-//	f, err := os.Create(fileName)
-//	if err != nil{
-//		panic(err.Error())
-//	}
-//	f.WriteString("1\n")
-//	f.Close()
-//	f.WriteString("2\n")
-//	////CreateAlertRules(fileName)
-	//f, _ := os.Create(fileName)
-	//defer f.Close()
-	//f.WriteString(ALERT_RULE)
-	//f.
-	//if re, err := regexp.Compile("    expr:.*\n");err != nil{
-	//	panic(err.Error())
-	//}else {
-	//	fmt.Println(re.MatchString(ALERT_RULE))
-	//	fmt.Println(re.ReplaceAllString(ALERT_RULE,""))
-	//	//regexp.CompilePOSIX()
-	//}
-
-	//rules := CreateAlertRules("/Users/guolsh/guolsh/test.txt")
-	//rules := new(AlertRules)
-	//rules.FileName = "/Users/guolsh/guolsh/test.txt"
-
-	//cs := []ContainerInfo{
-	//	ContainerInfo{
-	//		Namespace:"real",
-	//		PodName:"baidu-2-offer",
-	//		ContainerName:"caas",
-	//		Duration:"5m",
-	//		CpuQuata:"0.5",
-	//	},
-	//}
-	//rules.AddAlertRule(cs)
-//}

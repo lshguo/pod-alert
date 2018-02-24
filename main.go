@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"os/exec"
 //	"reflect"
 	//"time"
@@ -92,7 +91,7 @@ type AlertRuleController struct {
 func (c *AlertRuleController) enqueuePod(obj interface{}) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
-		fmt.Printf("Couldn't get key for object %+v: %v", obj, err)
+		glog.Errorf("Couldn't get key for object %+v: %v", obj, err)
 		return
 	}
 	c.podsQueue.Add(key)
@@ -101,11 +100,11 @@ func (c *AlertRuleController) enqueuePod(obj interface{}) {
 }
 
 func (c *AlertRuleController) podWorker() {
-	fmt.Println("podWorker start...")
+	glog.Infoln("podWorker start...")
 	workFunc := func() bool {
 		key, quit := c.podsQueue.Get()
 		if quit {
-			fmt.Println("WTF! podQueue quit?!")
+			glog.Infoln("WTF! podQueue quit?!")
 			return true
 		}
 		defer c.podsQueue.Done(key)
@@ -113,37 +112,32 @@ func (c *AlertRuleController) podWorker() {
 		obj, exists, err := c.podStore.Indexer.GetByKey(key.(string))
 		//pod是被删除
 		if !exists {
-			glog.Info("Pod has been deleted:", key.(string))
+			glog.V(4).Info("pod deleted:", key.(string))
 			c.alertRules.AddToList(getDeletedContainersFromPodKey(key.(string)))
 			return false
 		}
 		if err != nil {
-			fmt.Printf("cannot get pod: %v\n", key)
+			glog.Errorf("cannot get pod: %v\n", key)
 			return false
 		}
 
 		//pod是被创建
+		glog.V(4).Infoln("pod created:",key.(string))
 		pod := obj.(*v1.Pod)
 
 		c.alertRules.AddToList(getCreatedConatinersFromPodObj(pod))
 		return false
 	}
 	for {
-		//select {
-		//case <- c.fullQueue:
-		//	workFunc()
-		//case <- time.After(time.Minute * 5):
-		//	workFunc()
-		//}
 		if quit := workFunc(); quit {
-			fmt.Printf("pod worker shutting down")
+			glog.Infoln("pod worker shutting down")
 			continue
 		}
 	}
 }
 
 func (c *AlertRuleController) ruleWorker(){
-	fmt.Println("ruleWorker start...")
+	glog.Infoln("ruleWorker start...")
 	for {
 		//等待信号
 		select{
@@ -171,10 +165,10 @@ func (c *AlertRuleController) ruleWorker(){
 		cmap.Data = make(map[string]string)
 		cmap.Data["instance_cpu_alert_rules.yml"] = string(b)
 
-		if _, err := c.kubeClient.Core().ConfigMaps(namespace).Get(cmap.Name, meta_v1.GetOptions{});err != nil{
-			_, err = c.kubeClient.Core().ConfigMaps(namespace).Create(cmap)
+		if _, err := c.kubeClient.CoreV1().ConfigMaps(namespace).Get(cmap.Name, meta_v1.GetOptions{});err != nil{
+			_, err = c.kubeClient.CoreV1().ConfigMaps(namespace).Create(cmap)
 		}else {
-			_, err = c.kubeClient.Core().ConfigMaps(namespace).Update(cmap)
+			_, err = c.kubeClient.CoreV1().ConfigMaps(namespace).Update(cmap)
 		}
 
 		if err != nil{
@@ -183,7 +177,7 @@ func (c *AlertRuleController) ruleWorker(){
 		}
 
 		//通知prometheus对rules做reload
-		resp, err := http.Post(c.alertRules.PrometheusUrl,
+		resp, err := http.Post(c.alertRules.PrometheusUrl + "/-/reload",
 			"text/plain",
 			strings.NewReader("reload rules"))
 		if err!= nil{
@@ -210,10 +204,10 @@ func newAlertController(kubeconfig string) *AlertRuleController {
 	c.podStore.Indexer, c.podController = cache.NewIndexerInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
-				return c.kubeClient.Core().Pods(api.NamespaceAll).List(options)
+				return c.kubeClient.CoreV1().Pods(api.NamespaceAll).List(options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
-				return c.kubeClient.Core().Pods(api.NamespaceAll).Watch(options)
+				return c.kubeClient.CoreV1().Pods(api.NamespaceAll).Watch(options)
 			},
 		},
 		&v1.Pod{},
@@ -234,15 +228,15 @@ func newAlertController(kubeconfig string) *AlertRuleController {
 // Run begins watching and syncing.
 func (c *AlertRuleController) Run(workers int, stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
-	fmt.Println("Starting alertRule Manager")
+	glog.Infoln("Starting alertRule Manager")
 
 	go c.podController.Run(stopCh)
 	// wait for the controller to List. This help avoid churns during start up.
 	if !cache.WaitForCacheSync(stopCh, c.podController.HasSynced) {
-		fmt.Println("can not sync")
+		glog.Error("can not sync")
 		return
 	}else{
-		fmt.Println("pod sync completed")
+		glog.Infoln("pod sync completed")
 	}
 
 	//处理pod的创建与删除事件
@@ -261,6 +255,6 @@ func (c *AlertRuleController) Run(workers int, stopCh <-chan struct{}) {
 	c.alertRules.RestartTimer()
 
 	<-stopCh
-	fmt.Printf("Shutting down alertRule Manager")
+	glog.Infoln("Shutting down alertRule Manager")
 	c.podsQueue.ShutDown()
 }
