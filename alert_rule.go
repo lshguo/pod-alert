@@ -20,10 +20,13 @@ import (
 const FILE_HEAD  string = "groups:\n" +
 						  "- name: cpu-usage\n" +
 						  "  rules:\n"
-const RULE_START string = "  - alert: $NAMESPACE/$POD_NAME/$CONTAINER_NAME/CPU\n"
+const RULE_START string = "  - alert: ContainerCPUThresholdExceeded\n"
 const RULE_EXPR  string = "    expr: sum(irate(container_cpu_usage_seconds_total{namespace=\"$NAMESPACE\",pod_name=\"$POD_NAME\",container_name=\"$CONTAINER_NAME\"}[5m])) / $CPU_QUATA > 0.8 \n"
 const RULE_END   string = "    labels:\n" +
 						  "      severity: webhook\n" +
+						  "      container_label_io_kubernetes_pod_namespace: $NAMESPACE\n" +
+						  "      container_label_io_kubernetes_pod_name: $POD_NAME\n" +
+						  "      container_label_io_kubernetes_container_name: $CONTAINER_NAME\n" +
 						  "    annotations:\n" +
 						  "      summary: $NAMESPACE/$POD_NAME/$CONTAINER_NAME/CPU\n"
 // 三段字符串组成一条alert rule
@@ -31,8 +34,8 @@ const ALERT_RULE string = RULE_START + RULE_EXPR + RULE_END
 
 //为了避免prometheus频繁reload告警规则，pods创建后其对应rule先在内存里缓存一下
 //但数量不超过WAITING_NUMBER_MAX个, 时间不超过WAITING_SECOND_MAX秒
-const WAITING_NUMBER_MAX int = 60
-const WAITING_SECOND_MAX int = 300
+const WAITING_NUMBER_MAX int = 30
+const WAITING_SECOND_MAX int = 150
 
 
 type AlertRules struct{
@@ -121,20 +124,22 @@ func (c ContainerInfo)BuildAlertRuleStrings()(rule_start, rule_expr, rule_end st
 
 	return stringRelaceFunc(RULE_START),stringRelaceFunc(RULE_EXPR),stringRelaceFunc(RULE_END)
 }
+
 func (c ContainerInfo)deleteMeFromAlertRuleString(pStr *string){
 	//rule由三个部分组成，每个部分里都有如下关键词
 	keys := c.Namespace + ".*" + c.PodName + ".*" + c.ContainerName + ".*\n"
 
-	//抹除rule_start
-	re, err := regexp.Compile("  - alert:.*" + keys)
-	if err != nil{
-		glog.Error(keys + " regexp Error: " + err.Error())
-		return
-	}
-	re.ReplaceAllString(*pStr, "")
+	//rule_start里没有名字，不单独抹除
+	//re, err := regexp.Compile("  - alert:.*" + keys)
+	//if err != nil{
+	//	glog.Error(keys + " regexp Error: " + err.Error())
+	//	return
+	//}
+	//re.ReplaceAllString(*pStr, "")
 
-	//抹除rule_expr
-	re, err = regexp.Compile("    expr:.*" + keys)
+	//抹除rule_start和rule_expr
+	re, err := regexp.Compile("  - alert: ContainerCPUThresholdExceeded\n" +
+							 "    expr:.*" + keys)
 	if err != nil{
 		glog.Error(keys + " regexp Error: " + err.Error())
 		return
@@ -142,7 +147,11 @@ func (c ContainerInfo)deleteMeFromAlertRuleString(pStr *string){
 	re.ReplaceAllString(*pStr, "")
 
 	//抹除rule_end
-	re, err = regexp.Compile("    labels:.*\n" + ".*severity:.*\n"+ ".*annotations:.*\n" + "summary:.*" + keys)
+	re, err = regexp.Compile("    labels:.*\n" + ".*severity:.*\n" +
+		".*container_.*\n" +
+		".*container_.*\n" +
+		".*container_.*\n" +
+		".*annotations:.*\n" + "summary:.*" + keys)
 	if err != nil{
 		glog.Error(keys + " regexp Error: " + err.Error())
 		return
@@ -150,6 +159,14 @@ func (c ContainerInfo)deleteMeFromAlertRuleString(pStr *string){
 	re.ReplaceAllString(*pStr, "")
 
 }
+
+//不能这样做，因为获取到被删除的pod的时候并没有完整的数据结构，只知道namespace和pod_name, containerName等未知
+//func (c ContainerInfo)deleteMeFromAlertRuleString(pStr *string){
+//	rule_start, rule_expr, rule_end := c.BuildAlertRuleStrings()
+//	str := rule_start + rule_expr + rule_end
+//
+//	strings.Replace(*pStr, str, "", -1)
+//}
 
 func getDeletedContainersFromPodKey(key string) []*ContainerInfo {
 	return []*ContainerInfo {& ContainerInfo{
