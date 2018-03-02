@@ -167,7 +167,7 @@ func getCreatedConatinersFromPodObj(pod *v1.Pod) []*ContainerInfo {
 		if 0 == v{
 			continue
 		}
-		vv := float64(v/1000)
+		vv := float64(v)/1000.0
 		vvv := strconv.FormatFloat(vv,'f', -1, 64)
 		//
 		container := &ContainerInfo{
