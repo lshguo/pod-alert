@@ -144,19 +144,19 @@ func (c ContainerInfo)deleteMeFromAlertRuleString(pStr *string){
 		glog.Error(keys + " regexp Error: " + err.Error())
 		return
 	}
-	re.ReplaceAllString(*pStr, "")
+	*pStr = re.ReplaceAllString(*pStr, "")
 
 	//抹除rule_end
 	re, err = regexp.Compile("    labels:.*\n" + ".*severity:.*\n" +
 		".*container_.*\n" +
 		".*container_.*\n" +
 		".*container_.*\n" +
-		".*annotations:.*\n" + "summary:.*" + keys)
+		".*annotations:.*\n" + ".*summary:.*" + keys)
 	if err != nil{
 		glog.Error(keys + " regexp Error: " + err.Error())
 		return
 	}
-	re.ReplaceAllString(*pStr, "")
+	*pStr = re.ReplaceAllString(*pStr, "")
 
 }
 
